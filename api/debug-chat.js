@@ -7,7 +7,6 @@ export default async function handler(req, res) {
       model: "gpt-4o-mini",
       messages: [
         { role: "system", content: "Reply in JSON exactly like this: {\"ok\":true}" },
-},
         { role: "user", content: "test" }
       ],
       response_format: { type: "json_object" }
