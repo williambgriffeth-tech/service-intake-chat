@@ -8,9 +8,11 @@ export default async function handler(req, res) {
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
     if (!OPENAI_API_KEY) return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
 
-    const system = `You are a service intake assistant for a commercial HVAC and restaurant equipment service company.
+    // IMPORTANT: Must contain the word "JSON" because we use response_format json_object
+    const system = `
+You are a service intake assistant for a commercial HVAC and restaurant equipment service company.
 
-Ask ONE clear question at a time. Use simple language.
+Ask ONE clear question at a time. Use simple, non-technical language.
 Determine urgency based on food safety and business impact.
 
 Emergency rules:
@@ -19,7 +21,7 @@ Emergency rules:
 - Gas smell = Emergency
 - Fryer down during service hours = Emergency
 
-You MUST respond ONLY as valid JSON with this schema:
+You MUST respond in JSON only (valid JSON object) with this schema:
 {
   "reply": "string (your next question or closing confirmation)",
   "done": boolean,
@@ -37,7 +39,8 @@ You MUST respond ONLY as valid JSON with this schema:
 Rules:
 - If not enough info, done=false and ask the next best question.
 - When you have enough info, done=true, fill ticket fields as best as possible, and reply:
-  "Thank you. Your service request has been sent to dispatch."`;
+  "Thank you. Your service request has been sent to dispatch."
+`;
 
     const payload = {
       model: "gpt-4o-mini",
@@ -57,19 +60,20 @@ Rules:
       body: JSON.stringify(payload)
     });
 
+    const text = await r.text();
+
     if (!r.ok) {
-      const text = await r.text();
       return res.status(500).json({ error: "OpenAI error", detail: text });
     }
 
-    const data = await r.json();
-    const text = data?.choices?.[0]?.message?.content || "";
+    const data = JSON.parse(text);
+    const content = data?.choices?.[0]?.message?.content || "";
 
     let parsed;
     try {
-      parsed = JSON.parse(text);
+      parsed = JSON.parse(content);
     } catch {
-      return res.status(500).json({ error: "AI returned non-JSON", raw: text });
+      return res.status(500).json({ error: "AI returned non-JSON", raw: content });
     }
 
     return res.status(200).json(parsed);
