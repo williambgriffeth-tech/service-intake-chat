@@ -8,8 +8,7 @@ export default async function handler(req, res) {
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
     if (!OPENAI_API_KEY) return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
 
-    const system = `
-You are a service intake assistant for a commercial HVAC and restaurant equipment service company.
+    const system = `You are a service intake assistant for a commercial HVAC and restaurant equipment service company.
 
 Ask ONE clear question at a time. Use simple language.
 Determine urgency based on food safety and business impact.
@@ -20,9 +19,9 @@ Emergency rules:
 - Gas smell = Emergency
 - Fryer down during service hours = Emergency
 
-You MUST respond ONLY as valid JSON in this schema:
+You MUST respond ONLY as valid JSON with this schema:
 {
-  "reply": "string",
+  "reply": "string (your next question or closing confirmation)",
   "done": boolean,
   "ticket": {
     "customer_name": "string",
@@ -34,17 +33,22 @@ You MUST respond ONLY as valid JSON in this schema:
     "recommended_technician": "string"
   }
 }
-`;
+
+Rules:
+- If not enough info, done=false and ask the next best question.
+- When you have enough info, done=true, fill ticket fields as best as possible, and reply:
+  "Thank you. Your service request has been sent to dispatch."`;
 
     const payload = {
-      model: "gpt-4.1-mini",
-      input: [
+      model: "gpt-4o-mini",
+      messages: [
         { role: "system", content: system },
         ...messages.map(m => ({ role: m.role, content: m.content }))
-      ]
+      ],
+      response_format: { type: "json_object" }
     };
 
-    const r = await fetch("https://api.openai.com/v1/responses", {
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${OPENAI_API_KEY}`,
@@ -53,9 +57,20 @@ You MUST respond ONLY as valid JSON in this schema:
       body: JSON.stringify(payload)
     });
 
+    if (!r.ok) {
+      const text = await r.text();
+      return res.status(500).json({ error: "OpenAI error", detail: text });
+    }
+
     const data = await r.json();
-    const rawText = data.output_text || "";
-    const parsed = JSON.parse(rawText);
+    const text = data?.choices?.[0]?.message?.content || "";
+
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return res.status(500).json({ error: "AI returned non-JSON", raw: text });
+    }
 
     return res.status(200).json(parsed);
   } catch (e) {
