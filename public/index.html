@@ -1,11 +1,89 @@
 <!doctype html>
 <html>
-  <head>
-    <meta charset="utf-8">
-    <title>Service Request Chat</title>
-  </head>
-  <body>
-    <h2>Service Request Chat</h2>
-    <p>If you see this page, the site is loading correctly.</p>
-  </body>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Service Request Chat</title>
+  <style>
+    body{font-family:system-ui;margin:0;background:#0b0b0b;color:#fff}
+    .wrap{max-width:720px;margin:0 auto;padding:16px}
+    .card{background:#151515;border-radius:12px;padding:14px}
+    .msgs{height:55vh;overflow:auto;padding:10px;border:1px solid #2a2a2a;border-radius:10px}
+    .msg{margin:10px 0;white-space:pre-wrap}
+    .me{color:#9fd3ff}
+    .ai{color:#d9ffd9}
+    .row{display:flex;gap:10px;margin-top:10px}
+    input{flex:1;padding:12px;border-radius:10px;border:1px solid #2a2a2a;background:#0f0f0f;color:#fff}
+    button{padding:12px 14px;border-radius:10px;border:0;background:#2b6fff;color:#fff;font-weight:600}
+    .small{opacity:.8;font-size:12px;margin-top:8px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h2 style="margin:0 0 8px 0;">Request Service</h2>
+      <div class="msgs" id="msgs"></div>
+      <div class="row">
+        <input id="inp" placeholder="Describe the problem (e.g., walk-in not cooling)" />
+        <button id="send">Send</button>
+      </div>
+      <div class="small">When intake is complete, we automatically email dispatch.</div>
+    </div>
+  </div>
+
+<script>
+  const msgsEl = document.getElementById('msgs');
+  const inp = document.getElementById('inp');
+  const sendBtn = document.getElementById('send');
+
+  const messages = [];
+  let transcript = "";
+
+  function add(role, text){
+    const div = document.createElement('div');
+    div.className = 'msg ' + (role === 'user' ? 'me' : 'ai');
+    div.textContent = (role === 'user' ? 'Customer: ' : 'Assistant: ') + text;
+    msgsEl.appendChild(div);
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+    transcript += (role === 'user' ? 'Customer: ' : 'Assistant: ') + text + "\n";
+  }
+
+  async function callAI(){
+    const r = await fetch('/api/chat', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ messages })
+    });
+    const data = await r.json();
+    if(!r.ok) throw new Error(data.error || 'AI error');
+
+    add('assistant', data.reply || '');
+    messages.push({ role:"assistant", content: JSON.stringify(data) });
+
+    if (data.done) {
+      const er = await fetch('/api/email', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ ticket: data.ticket, transcript })
+      });
+      const ed = await er.json();
+      if (!er.ok) throw new Error(ed.error || 'Email error');
+    }
+  }
+
+  sendBtn.onclick = async () => {
+    const text = inp.value.trim();
+    if(!text) return;
+    inp.value = '';
+    add('user', text);
+    messages.push({ role:"user", content: text });
+    sendBtn.disabled = true;
+    try { await callAI(); }
+    catch(e){ add('assistant', 'Sorry — something went wrong. Please try again.'); }
+    finally { sendBtn.disabled = false; }
+  };
+
+  add('assistant', 'I’ll help you submit a service request. What equipment is having the issue?');
+</script>
+</body>
 </html>
