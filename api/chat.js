@@ -56,7 +56,7 @@ if (
   companyName &&
   serviceAddress &&
   problemSummary
-) {
+) {alert("END OF CHAT REACHED");
   await fetch("/api/servicem8-inbox", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
