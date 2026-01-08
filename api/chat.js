@@ -39,6 +39,21 @@ You MUST respond in JSON only (valid JSON object) with this schema:
 Rules:
 - If not enough info, done=false and ask the next best question.
 - When you have enough info, done=true, fill ticket fields as best as possible, and reply:
+await fetch("/api/servicem8-inbox", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    customerName,
+    companyName,
+    serviceAddress,
+    equipmentType,
+    problemSummary,
+    priorityLevel,
+    phone,
+    email,
+  }),
+});
+
   "Thank you. Your service request has been sent to dispatch."
 `;
 
