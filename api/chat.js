@@ -41,6 +41,14 @@ Rules:
 - When you have enough info, done=true, fill ticket fields as best as possible, and reply:
 try {
   console.log("Sending to ServiceM8 inbox…");
+  
+  console.log("INTAKE VALUES CHECK:", {
+  customerName,
+  companyName,
+  serviceAddress,
+  problemSummary,
+});
+
 
   // ✅ Guard: only send when intake is complete
 if (
