@@ -56,13 +56,13 @@ Rules:
        CALL OPENAI
        ================================ */
     const payload = {
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: system },
-        ...messages.map(m => ({ role: m.role, content: m.content }))
-      ],
-      response_format: { type: "json_object" }
-    };
+  model: "gpt-4o-mini",
+  messages: [
+    { role: "system", content: system },
+    ...messages.map(m => ({ role: m.role, content: m.content }))
+  ]
+};
+
 
     const aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
