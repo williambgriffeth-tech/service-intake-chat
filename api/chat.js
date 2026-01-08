@@ -1,78 +1,76 @@
 export default async function handler(req, res) {
   try {
-    // Only allow POST
     if (req.method !== "POST") {
-      return res.status(405).json({ error: "POST only" });
+      res.status(405).json({ error: "POST only" });
+      return;
     }
 
-    const body = req.body || {};
-    const messages = body.messages;
+    if (!req.body || !req.body.messages) {
+      res.status(400).json({ error: "messages[] required" });
+      return;
+    }
+
+    const messages = req.body.messages;
 
     if (!Array.isArray(messages)) {
-      return res.status(400).json({ error: "messages[] required" });
+      res.status(400).json({ error: "messages[] required" });
+      return;
     }
 
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
     if (!OPENAI_API_KEY) {
-      return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
+      res.status(500).json({ error: "Missing OPENAI_API_KEY" });
+      return;
     }
 
-    // ─────────────────────────────
-    // SYSTEM PROMPT (TEXT ONLY)
-    // ─────────────────────────────
-    const system = `
-You are a service intake assistant for a commercial HVAC and restaurant equipment service company.
+    const system =
+      "You are a service intake assistant for a commercial HVAC and restaurant equipment service company.\n\n" +
+      "Ask ONE clear question at a time.\n" +
+      "Use simple, non-technical language.\n" +
+      "Determine urgency based on food safety and business impact.\n\n" +
+      "Emergency rules:\n" +
+      "- Walk-in cooler above 45°F = Emergency\n" +
+      "- Freezer above 10°F = Emergency\n" +
+      "- Gas smell = Emergency\n" +
+      "- Fryer down during service hours = Emergency\n\n" +
+      "You MUST respond in valid JSON ONLY using this schema:\n\n" +
+      "{\n" +
+      '  "reply": "string",\n' +
+      '  "done": boolean,\n' +
+      '  "ticket": {\n' +
+      '    "customer_name": "string",\n' +
+      '    "business_name": "string",\n' +
+      '    "service_address": "string",\n' +
+      '    "equipment_type": "string",\n' +
+      '    "problem_summary": "string",\n' +
+      '    "priority_level": "Emergency|Same-Day|Scheduled|Unknown",\n' +
+      '    "recommended_technician": "string"\n' +
+      "  }\n" +
+      "}\n\n" +
+      "Rules:\n" +
+      "- If information is missing, set done=false and ask the next best question.\n" +
+      '- When all required info is collected, set done=true and reply exactly:\n' +
+      '"Thank you. Your service request has been sent to dispatch."';
 
-Ask ONE clear question at a time.
-Use simple, non-technical language.
-Determine urgency based on food safety and business impact.
+    const openAIMessages = [];
+    openAIMessages.push({ role: "system", content: system });
 
-Emergency rules:
-- Walk-in cooler above 45°F = Emergency
-- Freezer above 10°F = Emergency
-- Gas smell = Emergency
-- Fryer down during service hours = Emergency
+    for (let i = 0; i < messages.length; i++) {
+      openAIMessages.push({
+        role: messages[i].role,
+        content: messages[i].content
+      });
+    }
 
-You MUST respond in valid JSON ONLY using this schema:
-
-{
-  "reply": "string",
-  "done": boolean,
-  "ticket": {
-    "customer_name": "string",
-    "business_name": "string",
-    "service_address": "string",
-    "equipment_type": "string",
-    "problem_summary": "string",
-    "priority_level": "Emergency|Same-Day|Scheduled|Unknown",
-    "recommended_technician": "string"
-  }
-}
-
-Rules:
-- If information is missing, set done=false and ask the next best question.
-- When all required info is collected, set done=true and reply exactly:
-"Thank you. Your service request has been sent to dispatch."
-`;
-
-    // ─────────────────────────────
-    // OPENAI REQUEST
-    // ─────────────────────────────
     const payload = {
       model: "gpt-4o-mini-2024-07-18",
-      messages: [
-        { role: "system", content: system },
-        ...messages.map(m => ({
-          role: m.role,
-          content: m.content
-        }))
-      ]
+      messages: openAIMessages
     };
 
     const aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: "Bearer " + OPENAI_API_KEY,
         "Content-Type": "application/json"
       },
       body: JSON.stringify(payload)
@@ -81,31 +79,22 @@ Rules:
     const aiText = await aiResp.text();
 
     if (!aiResp.ok) {
-      return res.status(500).json({
-        error: "OpenAI error",
-        detail: aiText
-      });
+      res.status(500).json({ error: "OpenAI error", detail: aiText });
+      return;
     }
 
     const aiJson = JSON.parse(aiText);
-    const content = aiJson.choices?.[0]?.message?.content;
+    const content = aiJson.choices[0].message.content;
 
     let parsed;
     try {
       parsed = JSON.parse(content);
-    } catch (err) {
-      return res.status(500).json({
-        error: "AI returned invalid JSON",
-        raw: content
-      });
+    } catch (e) {
+      res.status(500).json({ error: "AI returned invalid JSON", raw: content });
+      return;
     }
 
-    // ─────────────────────────────
-    // SEND TO SERVICEM8 (WHEN DONE)
-    // ─────────────────────────────
     if (parsed.done === true && parsed.ticket) {
-      const ticket = parsed.ticket;
-
       await fetch("https://api.servicem8.com/api_1.0/inboxmessage.json", {
         method: "POST",
         headers: {
@@ -113,29 +102,30 @@ Rules:
           "X-Api-Key": process.env.SERVICEM8_API_KEY
         },
         body: JSON.stringify({
-          from_name: ticket.customer_name || "Website Intake",
+          from_name: parsed.ticket.customer_name || "Website Intake",
           from_email: "no-reply@atlantars.com",
-          to_email:
-            process.env.SERVICEM8_INBOX_TO_EMAIL || "service@atlantars.com",
-          subject: `[WEB AI INTAKE] ${ticket.priority_level || "Unknown"} — ${ticket.business_name}`,
+          to_email: process.env.SERVICEM8_INBOX_TO_EMAIL || "service@atlantars.com",
+          subject:
+            "[WEB AI INTAKE] " +
+            (parsed.ticket.priority_level || "Unknown") +
+            " — " +
+            parsed.ticket.business_name,
           message_text:
             "SERVICE REQUEST SUMMARY\n" +
-            `Customer Name: ${ticket.customer_name}\n` +
-            `Business Name: ${ticket.business_name}\n` +
-            `Service Address: ${ticket.service_address}\n` +
-            `Equipment Type: ${ticket.equipment_type}\n` +
-            `Problem Summary: ${ticket.problem_summary}\n` +
-            `Priority Level: ${ticket.priority_level}\n`,
+            "Customer Name: " + parsed.ticket.customer_name + "\n" +
+            "Business Name: " + parsed.ticket.business_name + "\n" +
+            "Service Address: " + parsed.ticket.service_address + "\n" +
+            "Equipment Type: " + parsed.ticket.equipment_type + "\n" +
+            "Problem Summary: " + parsed.ticket.problem_summary + "\n" +
+            "Priority Level: " + parsed.ticket.priority_level + "\n",
           message_type: "form"
         })
-      );
+      });
     }
 
-    // Return AI response to frontend
-    return res.status(200).json(parsed);
-
+    res.status(200).json(parsed);
   } catch (err) {
-    return res.status(500).json({
+    res.status(500).json({
       error: "Server error",
       detail: err.message || String(err)
     });
