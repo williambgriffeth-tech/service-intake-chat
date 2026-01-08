@@ -42,7 +42,14 @@ Rules:
 try {
   console.log("Sending to ServiceM8 inbox…");
 
-  const res = await fetch("/api/servicem8-inbox", {
+  // ✅ Guard: only send when intake is complete
+if (
+  customerName &&
+  companyName &&
+  serviceAddress &&
+  problemSummary
+) {
+  await fetch("/api/servicem8-inbox", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -56,6 +63,8 @@ try {
       email,
     }),
   });
+}
+
 
   const data = await res.json();
   console.log("ServiceM8 response:", data);
