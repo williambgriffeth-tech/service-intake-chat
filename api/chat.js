@@ -1,5 +1,8 @@
 export default async function handler(req, res) {
   try {
+    // ─────────────────────────────────────────
+    // Basic request validation
+    // ─────────────────────────────────────────
     if (req.method !== "POST") {
       return res.status(405).json({ error: "POST only" });
     }
@@ -14,9 +17,9 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
     }
 
-    /* ================================
-       SYSTEM PROMPT (TEXT ONLY)
-       ================================ */
+    // ─────────────────────────────────────────
+    // SYSTEM PROMPT (TEXT ONLY — NO CODE)
+    // ─────────────────────────────────────────
     const system = `
 You are a service intake assistant for a commercial HVAC and restaurant equipment service company.
 
@@ -30,7 +33,7 @@ Emergency rules:
 - Gas smell = Emergency
 - Fryer down during service hours = Emergency
 
-You MUST respond in JSON only with this schema:
+You MUST respond in valid JSON ONLY using this schema:
 
 {
   "reply": "string",
@@ -48,21 +51,20 @@ You MUST respond in JSON only with this schema:
 
 Rules:
 - If information is missing, set done=false and ask the next best question.
-- When all required info is collected, set done=true and reply:
+- When all required info is collected, set done=true and reply exactly:
 "Thank you. Your service request has been sent to dispatch."
 `;
 
-    /* ================================
-       CALL OPENAI
-       ================================ */
+    // ─────────────────────────────────────────
+    // Call OpenAI (STABLE + COMPATIBLE)
+    // ─────────────────────────────────────────
     const payload = {
-  model: "gpt-4o-mini",
-  messages: [
-    { role: "system", content: system },
-    ...messages.map(m => ({ role: m.role, content: m.content }))
-  ]
-};
-
+      model: "gpt-4o-mini-2024-07-18",
+      messages: [
+        { role: "system", content: system },
+        ...messages.map(m => ({ role: m.role, content: m.content }))
+      ]
+    };
 
     const aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -75,7 +77,10 @@ Rules:
 
     const aiText = await aiResp.text();
     if (!aiResp.ok) {
-      return res.status(500).json({ error: "OpenAI error", detail: aiText });
+      return res.status(500).json({
+        error: "OpenAI error",
+        detail: aiText
+      });
     }
 
     const aiJson = JSON.parse(aiText);
@@ -85,12 +90,15 @@ Rules:
     try {
       parsed = JSON.parse(content);
     } catch {
-      return res.status(500).json({ error: "AI returned invalid JSON", raw: content });
+      return res.status(500).json({
+        error: "AI returned invalid JSON",
+        raw: content
+      });
     }
 
-    /* ================================
-       SEND TO SERVICEM8 WHEN DONE
-       ================================ */
+    // ─────────────────────────────────────────
+    // SEND TO SERVICEM8 (ONLY WHEN DONE)
+    // ─────────────────────────────────────────
     if (parsed.done === true && parsed.ticket) {
       const {
         customer_name,
@@ -110,7 +118,8 @@ Rules:
         body: JSON.stringify({
           from_name: customer_name || "Website Intake",
           from_email: "no-reply@atlantars.com",
-          to_email: process.env.SERVICEM8_INBOX_TO_EMAIL || "service@atlantars.com",
+          to_email:
+            process.env.SERVICEM8_INBOX_TO_EMAIL || "service@atlantars.com",
           subject: `[WEB AI INTAKE] ${priority_level || "Unknown"} — ${business_name}`,
           message_text:
             `SERVICE REQUEST SUMMARY\n` +
@@ -125,9 +134,9 @@ Rules:
       );
     }
 
-    /* ================================
-       RETURN AI RESPONSE TO FRONTEND
-       ================================ */
+    // ─────────────────────────────────────────
+    // Return AI response to frontend
+    // ─────────────────────────────────────────
     return res.status(200).json(parsed);
 
   } catch (err) {
