@@ -1,13 +1,13 @@
 export default async function handler(req, res) {
   try {
-    // ─────────────────────────────────────────
-    // Basic request validation
-    // ─────────────────────────────────────────
+    // Only allow POST
     if (req.method !== "POST") {
       return res.status(405).json({ error: "POST only" });
     }
 
-    const { messages } = req.body || {};
+    const body = req.body || {};
+    const messages = body.messages;
+
     if (!Array.isArray(messages)) {
       return res.status(400).json({ error: "messages[] required" });
     }
@@ -17,9 +17,9 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
     }
 
-    // ─────────────────────────────────────────
-    // SYSTEM PROMPT (TEXT ONLY — NO CODE)
-    // ─────────────────────────────────────────
+    // ─────────────────────────────
+    // SYSTEM PROMPT (TEXT ONLY)
+    // ─────────────────────────────
     const system = `
 You are a service intake assistant for a commercial HVAC and restaurant equipment service company.
 
@@ -55,27 +55,31 @@ Rules:
 "Thank you. Your service request has been sent to dispatch."
 `;
 
-    // ─────────────────────────────────────────
-    // Call OpenAI (STABLE + COMPATIBLE)
-    // ─────────────────────────────────────────
+    // ─────────────────────────────
+    // OPENAI REQUEST
+    // ─────────────────────────────
     const payload = {
       model: "gpt-4o-mini-2024-07-18",
       messages: [
         { role: "system", content: system },
-        ...messages.map(m => ({ role: m.role, content: m.content }))
+        ...messages.map(m => ({
+          role: m.role,
+          content: m.content
+        }))
       ]
     };
 
     const aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify(payload)
     });
 
     const aiText = await aiResp.text();
+
     if (!aiResp.ok) {
       return res.status(500).json({
         error: "OpenAI error",
@@ -84,30 +88,23 @@ Rules:
     }
 
     const aiJson = JSON.parse(aiText);
-    const content = aiJson?.choices?.[0]?.message?.content;
+    const content = aiJson.choices?.[0]?.message?.content;
 
     let parsed;
     try {
       parsed = JSON.parse(content);
-    } catch {
+    } catch (err) {
       return res.status(500).json({
         error: "AI returned invalid JSON",
         raw: content
       });
     }
 
-    // ─────────────────────────────────────────
-    // SEND TO SERVICEM8 (ONLY WHEN DONE)
-    // ─────────────────────────────────────────
+    // ─────────────────────────────
+    // SEND TO SERVICEM8 (WHEN DONE)
+    // ─────────────────────────────
     if (parsed.done === true && parsed.ticket) {
-      const {
-        customer_name,
-        business_name,
-        service_address,
-        equipment_type,
-        problem_summary,
-        priority_level
-      } = parsed.ticket;
+      const ticket = parsed.ticket;
 
       await fetch("https://api.servicem8.com/api_1.0/inboxmessage.json", {
         method: "POST",
@@ -116,33 +113,31 @@ Rules:
           "X-Api-Key": process.env.SERVICEM8_API_KEY
         },
         body: JSON.stringify({
-          from_name: customer_name || "Website Intake",
+          from_name: ticket.customer_name || "Website Intake",
           from_email: "no-reply@atlantars.com",
           to_email:
             process.env.SERVICEM8_INBOX_TO_EMAIL || "service@atlantars.com",
-          subject: `[WEB AI INTAKE] ${priority_level || "Unknown"} — ${business_name}`,
+          subject: `[WEB AI INTAKE] ${ticket.priority_level || "Unknown"} — ${ticket.business_name}`,
           message_text:
-            `SERVICE REQUEST SUMMARY\n` +
-            `Customer Name: ${customer_name}\n` +
-            `Business Name: ${business_name}\n` +
-            `Service Address: ${service_address}\n` +
-            `Equipment Type: ${equipment_type}\n` +
-            `Problem Summary: ${problem_summary}\n` +
-            `Priority Level: ${priority_level}\n`,
+            "SERVICE REQUEST SUMMARY\n" +
+            `Customer Name: ${ticket.customer_name}\n` +
+            `Business Name: ${ticket.business_name}\n` +
+            `Service Address: ${ticket.service_address}\n` +
+            `Equipment Type: ${ticket.equipment_type}\n` +
+            `Problem Summary: ${ticket.problem_summary}\n` +
+            `Priority Level: ${ticket.priority_level}\n`,
           message_type: "form"
         })
       );
     }
 
-    // ─────────────────────────────────────────
     // Return AI response to frontend
-    // ─────────────────────────────────────────
     return res.status(200).json(parsed);
 
   } catch (err) {
     return res.status(500).json({
       error: "Server error",
-      detail: err?.message || String(err)
+      detail: err.message || String(err)
     });
   }
 }
